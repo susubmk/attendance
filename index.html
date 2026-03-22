@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>출퇴근 기록</title>
+<style>
+  :root {
+    --bg: #f0f2f7;
+    --card: #ffffff;
+    --ink: #1a1a2e;
+    --muted: #8b8fa3;
+    --border: #e2e5ef;
+    --accent-am: #2563eb;
+    --accent-pm: #dc2626;
+    --green: #16a34a;
+    --radius: 12px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    color: var(--ink);
+    overscroll-behavior: none;
+  }
+
+  body { padding-bottom: calc(90px + var(--safe-bottom)); }
+
+  /* ── 헤더 ── */
+  .top-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--ink);
+    color: #fff;
+    padding: 16px 20px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .app-title { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.3px; }
+  .app-title span { color: #fbbf24; }
+
+  .month-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 4px 6px;
+  }
+  .month-btn {
+    width: 40px; height: 40px; border: none; background: none;
+    color: #fff; font-size: 1.2rem; font-weight: 800;
+    cursor: pointer; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .month-btn:active { background: rgba(255,255,255,0.2); }
+  #monthLabel {
+    font-size: 1rem; font-weight: 700;
+    color: #fff; min-width: 120px; text-align: center;
+  }
+
+  /* ── 요약 ── */
+  .summary-strip {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; padding: 12px 14px 4px;
+  }
+  .sum-card {
+    background: var(--card); border-radius: 10px;
+    padding: 12px 8px; text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .sum-label { font-size: 0.7rem; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  .sum-value { font-size: 1.05rem; font-weight: 700; }
+  .sum-value.red { color: var(--accent-pm); }
+  .sum-value.grn { color: var(--green); }
+
+  /* ── 날짜 리스트 ── */
+  .day-list { padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+  .day-card {
+    background: var(--card); border-radius: var(--radius);
+    overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  }
+  .day-card.weekend-sun .day-header { background: #fef2f2; }
+  .day-card.weekend-sat .day-header { background: #eff6ff; }
+  .day-card.is-today { box-shadow: 0 0 0 2.5px var(--accent-am), 0 2px 8px rgba(0,0,0,0.1); }
+
+  .day-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; cursor: pointer; user-select: none;
+    min-height: 52px;
+  }
+  .day-header:active { background: rgba(0,0,0,0.03); }
+
+  .day-info { display: flex; align-items: center; gap: 10px; }
+  .day-num { font-size: 1.3rem; font-weight: 700; min-width: 32px; }
+  .day-num.sun { color: var(--accent-pm); }
+  .day-num.sat { color: var(--accent-am); }
+
+  .day-dow {
+    font-size: 0.75rem; font-weight: 700;
+    background: var(--ink); color: #fff;
+    border-radius: 4px; padding: 2px 7px;
+  }
+  .day-dow.sun { background: var(--accent-pm); }
+  .day-dow.sat { background: var(--accent-am); }
+
+  .day-today-badge {
+    font-size: 0.6rem; font-weight: 800;
+    background: var(--accent-am); color: #fff;
+    border-radius: 4px; padding: 2px 6px;
+  }
+
+  .day-right { display: flex; align-items: center; gap: 8px; }
+  .day-total {
+    font-size: 0.8rem; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .day-total.has { background: #dcfce7; color: var(--green); }
+  .day-total.empty { background: #f1f5f9; color: var(--muted); }
+
+  .chevron {
+    font-size: 0.7rem; color: var(--muted);
+    transition: transform 0.2s;
+  }
+  .day-card.open .chevron { transform: rotate(180deg); }
+
+  /* ── 펼침 바디 ── */
+  .day-body {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.25s ease;
+  }
+  .day-card.open .day-body {
+    max-height: 500px;
+    border-top: 1px solid var(--border);
+  }
+  .day-body-inner { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* ── 오전/오후 섹션 ── */
+  .time-section {
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .time-section.am { background: #eff6ff; }
+  .time-section.pm { background: #fef2f2; }
+
+  .time-section-label {
+    font-size: 0.72rem; font-weight: 800;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .time-section-label.am { color: var(--accent-am); }
+  .time-section-label.pm { color: var(--accent-pm); }
+
+  .sec-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .sec-dot.am { background: var(--accent-am); }
+  .sec-dot.pm { background: var(--accent-pm); }
+
+  .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .time-field { display: flex; flex-direction: column; gap: 5px; }
+  .time-field-label { font-size: 0.68rem; color: var(--muted); font-weight: 700; }
+
+  .time-input-group {
+    display: flex; border-radius: 8px; overflow: hidden;
+    border: 1.5px solid var(--border); background: #fff;
+  }
+
+  .time-inp {
+    flex: 1; border: none; outline: none; background: transparent;
+    font-size: 0.95rem; font-weight: 500;
+    color: var(--ink); text-align: center; padding: 10px 4px;
+    min-width: 0; -webkit-appearance: none;
+    cursor: pointer;
+  }
+  .time-inp::-webkit-calendar-picker-indicator { opacity: 0; width: 0; padding: 0; }
+
+  .stamp-btn {
+    padding: 0 10px; border: none; cursor: pointer;
+    font-size: 0.65rem; font-weight: 800;
+    border-left: 1.5px solid var(--border);
+    white-space: nowrap;
+  }
+  .stamp-btn:active { opacity: 0.7; }
+  .stamp-btn.am { background: var(--accent-am); color: #fff; border-color: var(--accent-am); }
+  .stamp-btn.pm { background: var(--accent-pm); color: #fff; border-color: var(--accent-pm); }
+
+  /* ── 하단 바 ── */
+  .bottom-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+    background: var(--card); border-top: 1.5px solid var(--border);
+    padding: 12px 16px;
+    padding-bottom: calc(12px + var(--safe-bottom));
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+  }
+  .save-status {
+    font-size: 0.75rem; color: var(--muted); flex: 1;
+  }
+  .save-status.dirty { color: var(--accent-pm); font-weight: 700; }
+  .save-status.saved { color: var(--green); font-weight: 700; }
+
+  .btn-save {
+    padding: 12px 28px;
+    background: var(--green); color: #fff;
+    border: none; border-radius: 10px;
+    font-weight: 800; font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(22,163,74,0.3);
+  }
+  .btn-save:active { opacity: 0.85; transform: scale(0.97); }
+
+  /* ── 토스트 ── */
+  #toast {
+    position: fixed; top: 80px; left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+    background: var(--green); color: #fff;
+    padding: 11px 24px; border-radius: 24px;
+    font-weight: 700; font-size: 0.88rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── 편집 모달 ── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 300;
+    background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.show { opacity: 1; pointer-events: auto; }
+
+  .modal {
+    background: var(--card); border-radius: 16px;
+    padding: 24px; width: min(360px, 90vw);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    transform: scale(0.95);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.show .modal { transform: scale(1); }
+
+  .modal h3 { font-size: 1rem; margin-bottom: 16px; }
+  .modal-field { margin-bottom: 12px; }
+  .modal-field label { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+  .modal-field input {
+    width: 100%; padding: 10px 12px;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 1rem; outline: none;
+  }
+  .modal-field input:focus { border-color: var(--accent-am); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal-actions button {
+    flex: 1; padding: 11px; border: none; border-radius: 8px;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  }
+  .btn-cancel { background: #f1f5f9; color: var(--ink); }
+  .btn-confirm { background: var(--accent-am); color: #fff; }
+  .btn-clear { background: var(--accent-pm); color: #fff; flex: 0.6; }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- 편집 모달 -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h3 id="editTitle">시간 편집</h3>
+    <div class="modal-field">
+      <label>오전 출근</label>
+      <input type="time" id="editAmIn">
+    </div>
+    <div class="modal-field">
+      <label>오전 퇴근</label>
+      <input type="time" id="editAmOut">
+    </div>
+    <div class="modal-field">
+      <label>오후 출근</label>
+      <input type="time" id="editPmIn">
+    </div>
+    <div class="modal-field">
+      <label>오후 퇴근</label>
+      <input type="time" id="editPmOut">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-clear" onclick="clearEdit()">초기화</button>
+      <button class="btn-cancel" onclick="closeEdit()">취소</button>
+      <button class="btn-confirm" onclick="confirmEdit()">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- 헤더 -->
+<div class="top-bar">
+  <div class="app-title">출퇴근 <span>기록표</span></div>
+  <div class="month-nav">
+    <button class="month-btn" onclick="changeMonth(-1)">&#8249;</button>
+    <span id="monthLabel"></span>
+    <button class="month-btn" onclick="changeMonth(1)">&#8250;</button>
+  </div>
+</div>
+
+<!-- 요약 -->
+<div class="summary-strip">
+  <div class="sum-card">
+    <div class="sum-label">근무일수</div>
+    <div class="sum-value red" id="sumDays">0일</div>
+  </div>
+  <div class="sum-card">
+    <div class="sum-label">총 시간</div>
+    <div class="sum-value grn" id="sumHours">0h</div>
+  </div>
+  <div class="sum-card">
+    <div class="sum-label">일 평균</div>
+    <div class="sum-value" id="sumAvg">-</div>
+  </div>
+</div>
+
+<!-- 날짜 리스트 -->
+<div class="day-list" id="dayList"></div>
+
+<!-- 하단 저장 -->
+<div class="bottom-bar">
+  <div class="save-status" id="saveStatus">저장된 데이터 없음</div>
+  <button class="btn-save" onclick="saveData()">저장</button>
+</div>
+
+<script>
+  const DAYS = ['일','월','화','수','목','금','토'];
+  const STORAGE_KEY = 'attendance_new_v1';
+  const STORAGE_TS  = 'attendance_new_v1_ts';
+
+  let year, month;
+  let data = {};
+  let dirty = false;
+  let editingKey = null;
+
+  function init() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    data = saved ? JSON.parse(saved) : {};
+    const now = new Date();
+    year  = now.getFullYear();
+    month = now.getMonth();
+    const ts = localStorage.getItem(STORAGE_TS);
+    setStatus(ts ? '마지막 저장: ' + ts : '저장된 데이터 없음', '');
+    render();
+  }
+
+  function changeMonth(d) {
+    month += d;
+    if (month > 11) { month = 0; year++; }
+    if (month < 0)  { month = 11; year--; }
+    render();
+  }
+
+  function render() {
+    document.getElementById('monthLabel').textContent = year + '년 ' + (month + 1) + '월';
+    const list = document.getElementById('dayList');
+    list.innerHTML = '';
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(year, month, d);
+      const dow = dt.getDay();
+      const dk = dkey(year, month + 1, d);
+      const rec = data[dk] || {};
+      const isToday = dt.toDateString() === today.toDateString();
+
+      const card = document.createElement('div');
+      card.className = 'day-card'
+        + (dow === 0 ? ' weekend-sun' : dow === 6 ? ' weekend-sat' : '')
+        + (isToday ? ' is-today' : '');
+      card.id = 'card-' + dk;
+
+      // 헤더
+      const hdr = document.createElement('div');
+      hdr.className = 'day-header';
+
+      const info = document.createElement('div');
+      info.className = 'day-info';
+
+      const numEl = document.createElement('div');
+      numEl.className = 'day-num' + (dow === 0 ? ' sun' : dow === 6 ? ' sat' : '');
+      numEl.textContent = pad(d);
+
+      const dowEl = document.createElement('div');
+      dowEl.className = 'day-dow' + (dow === 0 ? ' sun' : dow === 6 ? ' sat' : '');
+      dowEl.textContent = DAYS[dow];
+
+      info.appendChild(numEl);
+      info.appendChild(dowEl);
+
+      if (isToday) {
+        const tb = document.createElement('span');
+        tb.className = 'day-today-badge';
+        tb.textContent = 'TODAY';
+        info.appendChild(tb);
+      }
+
+      const right = document.createElement('div');
+      right.className = 'day-right';
+
+      const badge = document.createElement('span');
+      badge.id = 'badge-' + dk;
+      right.appendChild(badge);
+
+      const chev = document.createElement('span');
+      chev.className = 'chevron';
+      chev.textContent = '\u25BC';
+      right.appendChild(chev);
+
+      hdr.appendChild(info);
+      hdr.appendChild(right);
+      hdr.addEventListener('click', function() { card.classList.toggle('open'); });
+
+      // 바디
+      const body = document.createElement('div');
+      body.className = 'day-body';
+      const inner = document.createElement('div');
+      inner.className = 'day-body-inner';
+
+      inner.appendChild(buildSection('am', dk, rec));
+      inner.appendChild(buildSection('pm', dk, rec));
+      inner.appendChild(buildEditBtn(dk));
+
+      body.appendChild(inner);
+      card.appendChild(hdr);
+      card.appendChild(body);
+      list.appendChild(card);
+
+      updateBadge(dk);
+
+      if (isToday) {
+        card.classList.add('open');
+        setTimeout(function() { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 120);
+      }
+    }
+
+    updateSummary();
+  }
+
+  function buildSection(period, dk, rec) {
+    const isAM = period === 'am';
+    const wrap = document.createElement('div');
+    wrap.className = 'time-section ' + period;
+
+    const lbl = document.createElement('div');
+    lbl.className = 'time-section-label ' + period;
+    const dot = document.createElement('span');
+    dot.className = 'sec-dot ' + period;
+    lbl.appendChild(dot);
+    lbl.appendChild(document.createTextNode(isAM ? '오전 근무' : '오후 근무'));
+    wrap.appendChild(lbl);
+
+    const row = document.createElement('div');
+    row.className = 'time-row';
+
+    var fields = [
+      { fk: period + '-in',  label: '출근' },
+      { fk: period + '-out', label: '퇴근' }
+    ];
+
+    fields.forEach(function(item) {
+      var fk = item.fk;
+      var label = item.label;
+
+      const field = document.createElement('div');
+      field.className = 'time-field';
+
+      const fl = document.createElement('div');
+      fl.className = 'time-field-label';
+      fl.textContent = label;
+      field.appendChild(fl);
+
+      const group = document.createElement('div');
+      group.className = 'time-input-group';
+
+      const inp = document.createElement('input');
+      inp.type = 'time';
+      inp.className = 'time-inp';
+      inp.value = rec[fk] || '';
+      inp.id = dk + '-' + fk;
+      inp.addEventListener('change', function() {
+        ensure(dk);
+        data[dk][fk] = inp.value;
+        markDirty();
+        updateBadge(dk);
+        updateSummary();
+      });
+
+      const btn = document.createElement('button');
+      btn.className = 'stamp-btn ' + period;
+      btn.textContent = '현재';
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const now = new Date();
+        inp.value = pad(now.getHours()) + ':' + pad(now.getMinutes());
+        ensure(dk);
+        data[dk][fk] = inp.value;
+        markDirty();
+        updateBadge(dk);
+        updateSummary();
+        showToast(label + ' 시간 기록: ' + inp.value);
+      });
+
+      group.appendChild(inp);
+      group.appendChild(btn);
+      field.appendChild(group);
+      row.appendChild(field);
+    });
+
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  function buildEditBtn(dk) {
+    const wrap = document.createElement('div');
+    wrap.style.textAlign = 'right';
+    const btn = document.createElement('button');
+    btn.textContent = '편집';
+    btn.style.cssText = 'background:none;border:1.5px solid var(--border);border-radius:8px;padding:6px 16px;font-size:0.78rem;font-weight:700;color:var(--muted);cursor:pointer;';
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openEdit(dk);
+    });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  // 편집 모달
+  function openEdit(dk) {
+    editingKey = dk;
+    const rec = data[dk] || {};
+    document.getElementById('editTitle').textContent = dk + ' 시간 편집';
+    document.getElementById('editAmIn').value = rec['am-in'] || '';
+    document.getElementById('editAmOut').value = rec['am-out'] || '';
+    document.getElementById('editPmIn').value = rec['pm-in'] || '';
+    document.getElementById('editPmOut').value = rec['pm-out'] || '';
+    document.getElementById('editModal').classList.add('show');
+  }
+
+  function closeEdit() {
+    document.getElementById('editModal').classList.remove('show');
+    editingKey = null;
+  }
+
+  function confirmEdit() {
+    if (!editingKey) return;
+    ensure(editingKey);
+    var dk = editingKey;
+    data[dk]['am-in']  = document.getElementById('editAmIn').value;
+    data[dk]['am-out'] = document.getElementById('editAmOut').value;
+    data[dk]['pm-in']  = document.getElementById('editPmIn').value;
+    data[dk]['pm-out'] = document.getElementById('editPmOut').value;
+
+    // 인라인 입력도 업데이트
+    var fields = ['am-in','am-out','pm-in','pm-out'];
+    fields.forEach(function(fk) {
+      var el = document.getElementById(dk + '-' + fk);
+      if (el) el.value = data[dk][fk];
+    });
+
+    markDirty();
+    updateBadge(dk);
+    updateSummary();
+    closeEdit();
+    showToast('시간이 수정되었습니다');
+  }
+
+  function clearEdit() {
+    document.getElementById('editAmIn').value = '';
+    document.getElementById('editAmOut').value = '';
+    document.getElementById('editPmIn').value = '';
+    document.getElementById('editPmOut').value = '';
+  }
+
+  // 배지 & 요약
+  function updateBadge(dk) {
+    const el = document.getElementById('badge-' + dk);
+    if (!el) return;
+    const min = calcMin(dk);
+    if (min > 0) {
+      el.textContent = fmt(min);
+      el.className = 'day-total has';
+    } else {
+      el.textContent = '미입력';
+      el.className = 'day-total empty';
+    }
+  }
+
+  function updateSummary() {
+    const pre = year + '-' + pad(month + 1) + '-';
+    let total = 0, days = 0;
+    Object.keys(data).forEach(function(k) {
+      if (!k.startsWith(pre)) return;
+      const m = calcMin(k);
+      if (m > 0) { total += m; days++; }
+    });
+    document.getElementById('sumDays').textContent = days + '일';
+    document.getElementById('sumHours').textContent = total > 0 ? fmt(total) : '0h';
+    document.getElementById('sumAvg').textContent = days > 0 ? fmt(Math.round(total / days)) : '-';
+  }
+
+  function calcMin(dk) {
+    const r = data[dk] || {};
+    let t = 0;
+    const amIn  = toMin(r['am-in']);
+    const amOut = toMin(r['am-out']);
+    const pmIn  = toMin(r['pm-in']);
+    const pmOut = toMin(r['pm-out']);
+    if (amIn !== null && amOut !== null && amOut > amIn) t += amOut - amIn;
+    if (pmIn !== null && pmOut !== null && pmOut > pmIn) t += pmOut - pmIn;
+    return t;
+  }
+
+  function toMin(t) {
+    if (!t) return null;
+    var parts = t.split(':').map(Number);
+    return parts[0] * 60 + parts[1];
+  }
+
+  function fmt(min) {
+    if (!min || min <= 0) return '';
+    return Math.floor(min / 60) + 'h ' + pad(min % 60) + 'm';
+  }
+
+  // 저장
+  function saveData() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    const now = new Date();
+    const ts = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+    localStorage.setItem(STORAGE_TS, ts);
+    dirty = false;
+    setStatus('저장 완료 · ' + ts, 'saved');
+    showToast('저장되었습니다');
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg || '저장되었습니다';
+    t.classList.add('show');
+    clearTimeout(t._t);
+    t._t = setTimeout(function() { t.classList.remove('show'); }, 1800);
+  }
+
+  function markDirty() {
+    dirty = true;
+    setStatus('저장되지 않은 변경사항', 'dirty');
+  }
+
+  function setStatus(msg, cls) {
+    const el = document.getElementById('saveStatus');
+    el.textContent = msg;
+    el.className = 'save-status ' + cls;
+  }
+
+  function ensure(k) { if (!data[k]) data[k] = {}; }
+  function dkey(y, m, d) { return y + '-' + pad(m) + '-' + pad(d); }
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  // Ctrl+S 저장
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveData(); }
+  });
+
+  // 모달 외부 클릭 닫기
+  document.getElementById('editModal').addEventListener('click', function(e) {
+    if (e.target === this) closeEdit();
+  });
+
+  // 페이지 이탈 경고
+  window.addEventListener('beforeunload', function(e) {
+    if (dirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  init();
+</script>
+</body>
+</html>
