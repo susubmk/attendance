@@ -30,6 +30,24 @@
 
   body { padding-bottom: calc(90px + var(--safe-bottom)); }
 
+  /* ── 로딩 ── */
+  #loading {
+    position: fixed; inset: 0; z-index: 500;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+  }
+  #loading.hidden { display: none; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent-am);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { font-size: 0.9rem; color: var(--muted); font-weight: 600; }
+
   /* ── 헤더 ── */
   .top-bar {
     position: sticky; top: 0; z-index: 100;
@@ -38,8 +56,15 @@
     padding: 16px 20px 14px;
     display: flex; flex-direction: column; gap: 10px;
   }
+  .top-bar-row { display: flex; align-items: center; justify-content: space-between; }
   .app-title { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.3px; }
   .app-title span { color: #fbbf24; }
+  .sync-indicator {
+    font-size: 0.65rem; font-weight: 700;
+    padding: 3px 8px; border-radius: 12px;
+  }
+  .sync-indicator.online { background: #16a34a; color: #fff; }
+  .sync-indicator.offline { background: #ef4444; color: #fff; }
 
   .month-nav {
     display: flex; align-items: center; justify-content: space-between;
@@ -196,6 +221,7 @@
   }
   .save-status.dirty { color: var(--accent-pm); font-weight: 700; }
   .save-status.saved { color: var(--green); font-weight: 700; }
+  .save-status.syncing { color: var(--accent-am); font-weight: 700; }
 
   .btn-save {
     padding: 12px 28px;
@@ -206,6 +232,7 @@
     box-shadow: 0 3px 10px rgba(22,163,74,0.3);
   }
   .btn-save:active { opacity: 0.85; transform: scale(0.97); }
+  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* ── 토스트 ── */
   #toast {
@@ -261,6 +288,12 @@
 </head>
 <body>
 
+<!-- 로딩 -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p>데이터 불러오는 중...</p>
+</div>
+
 <div id="toast"></div>
 
 <!-- 편집 모달 -->
@@ -293,7 +326,10 @@
 
 <!-- 헤더 -->
 <div class="top-bar">
-  <div class="app-title">출퇴근 <span>기록표</span></div>
+  <div class="top-bar-row">
+    <div class="app-title">출퇴근 <span>기록표</span></div>
+    <div class="sync-indicator online" id="syncBadge">CLOUD</div>
+  </div>
   <div class="month-nav">
     <button class="month-btn" onclick="changeMonth(-1)">&#8249;</button>
     <span id="monthLabel"></span>
@@ -322,29 +358,108 @@
 
 <!-- 하단 저장 -->
 <div class="bottom-bar">
-  <div class="save-status" id="saveStatus">저장된 데이터 없음</div>
-  <button class="btn-save" onclick="saveData()">저장</button>
+  <div class="save-status" id="saveStatus">불러오는 중...</div>
+  <button class="btn-save" id="saveBtn" onclick="saveData()" disabled>저장</button>
 </div>
 
+<!-- Firebase SDK (CDN compat 버전) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <script>
+  // Firebase 초기화
+  firebase.initializeApp({
+    apiKey: "AIzaSyCQoMcbIyxyEbLweJj5ZOfRD4_jDSxkLcY",
+    authDomain: "attendance-f0dac.firebaseapp.com",
+    projectId: "attendance-f0dac",
+    storageBucket: "attendance-f0dac.firebasestorage.app",
+    messagingSenderId: "495423799597",
+    appId: "1:495423799597:web:c59737e4b32bc336ef93a4"
+  });
+
+  const db = firebase.firestore();
+  const DOC_REF = db.collection('attendance').doc('shared');
+
   const DAYS = ['일','월','화','수','목','금','토'];
-  const STORAGE_KEY = 'attendance_new_v1';
-  const STORAGE_TS  = 'attendance_new_v1_ts';
 
   let year, month;
   let data = {};
   let dirty = false;
   let editingKey = null;
+  let saving = false;
 
-  function init() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    data = saved ? JSON.parse(saved) : {};
+  // ── Firebase에서 데이터 불러오기 ──
+  async function loadFromFirebase() {
+    try {
+      const snap = await DOC_REF.get();
+      if (snap.exists) {
+        data = snap.data().records || {};
+      } else {
+        data = {};
+      }
+    } catch (err) {
+      console.error('Firebase 로드 실패:', err);
+      // 오프라인 시 localStorage 폴백
+      var local = localStorage.getItem('attendance_fb_cache');
+      data = local ? JSON.parse(local) : {};
+      updateSyncBadge(false);
+    }
+  }
+
+  // ── Firebase에 저장 ──
+  async function saveToFirebase() {
+    try {
+      await DOC_REF.set({
+        records: data,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      // 로컬 캐시도 저장
+      localStorage.setItem('attendance_fb_cache', JSON.stringify(data));
+      return true;
+    } catch (err) {
+      console.error('Firebase 저장 실패:', err);
+      localStorage.setItem('attendance_fb_cache', JSON.stringify(data));
+      return false;
+    }
+  }
+
+  function updateSyncBadge(online) {
+    var el = document.getElementById('syncBadge');
+    if (online) {
+      el.textContent = 'CLOUD';
+      el.className = 'sync-indicator online';
+    } else {
+      el.textContent = 'OFFLINE';
+      el.className = 'sync-indicator offline';
+    }
+  }
+
+  // ── 실시간 동기화 리스너 ──
+  function listenForChanges() {
+    DOC_REF.onSnapshot(function(snap) {
+      if (snap.exists && !dirty) {
+        data = snap.data().records || {};
+        render();
+        updateSyncBadge(true);
+      }
+    }, function(err) {
+      console.error('실시간 리스너 오류:', err);
+      updateSyncBadge(false);
+    });
+  }
+
+  // ── 초기화 ──
+  async function init() {
     const now = new Date();
     year  = now.getFullYear();
     month = now.getMonth();
-    const ts = localStorage.getItem(STORAGE_TS);
-    setStatus(ts ? '마지막 저장: ' + ts : '저장된 데이터 없음', '');
+
+    await loadFromFirebase();
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('saveBtn').disabled = false;
+    setStatus('클라우드 동기화 완료', 'saved');
     render();
+    listenForChanges();
   }
 
   function changeMonth(d) {
@@ -555,7 +670,6 @@
     data[dk]['pm-in']  = document.getElementById('editPmIn').value;
     data[dk]['pm-out'] = document.getElementById('editPmOut').value;
 
-    // 인라인 입력도 업데이트
     var fields = ['am-in','am-out','pm-in','pm-out'];
     fields.forEach(function(fk) {
       var el = document.getElementById(dk + '-' + fk);
@@ -626,15 +740,30 @@
     return Math.floor(min / 60) + 'h ' + pad(min % 60) + 'm';
   }
 
-  // 저장
-  function saveData() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    const now = new Date();
-    const ts = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
-    localStorage.setItem(STORAGE_TS, ts);
-    dirty = false;
-    setStatus('저장 완료 · ' + ts, 'saved');
-    showToast('저장되었습니다');
+  // 저장 (Firebase)
+  async function saveData() {
+    if (saving) return;
+    saving = true;
+    var btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    setStatus('클라우드에 저장 중...', 'syncing');
+
+    var ok = await saveToFirebase();
+    saving = false;
+    btn.disabled = false;
+
+    if (ok) {
+      dirty = false;
+      const now = new Date();
+      const ts = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+      setStatus('클라우드 저장 완료 · ' + ts, 'saved');
+      updateSyncBadge(true);
+      showToast('클라우드에 저장되었습니다');
+    } else {
+      setStatus('저장 실패 - 다시 시도해주세요', 'dirty');
+      updateSyncBadge(false);
+      showToast('저장 실패');
+    }
   }
 
   function showToast(msg) {
