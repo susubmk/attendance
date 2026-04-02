@@ -28,7 +28,7 @@
     overscroll-behavior: none;
   }
 
-  body { padding-bottom: calc(90px + var(--safe-bottom)); }
+  body { padding-bottom: 20px; }
 
   /* ── 로딩 ── */
   #loading {
@@ -56,9 +56,24 @@
     padding: 16px 20px 14px;
     display: flex; flex-direction: column; gap: 10px;
   }
-  .top-bar-row { display: flex; align-items: center; justify-content: space-between; }
-  .app-title { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.3px; }
+  .top-bar-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .app-title { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.3px; flex: 1; }
   .app-title span { color: #fbbf24; }
+  .top-bar-save {
+    padding: 8px 18px; border: none; border-radius: 8px;
+    background: var(--green); color: #fff;
+    font-weight: 800; font-size: 0.8rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(22,163,74,0.3);
+  }
+  .top-bar-save:active { opacity: 0.85; transform: scale(0.97); }
+  .top-bar-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .save-status-top {
+    font-size: 0.6rem; color: rgba(255,255,255,0.6); font-weight: 600;
+    text-align: right; margin-top: 2px;
+  }
+  .save-status-top.dirty { color: #fbbf24; }
+  .save-status-top.saved { color: #4ade80; }
   .sync-indicator {
     font-size: 0.65rem; font-weight: 700;
     padding: 3px 8px; border-radius: 12px;
@@ -207,32 +222,6 @@
   .stamp-btn.am { background: var(--accent-am); color: #fff; border-color: var(--accent-am); }
   .stamp-btn.pm { background: var(--accent-pm); color: #fff; border-color: var(--accent-pm); }
 
-  /* ── 하단 바 ── */
-  .bottom-bar {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
-    background: var(--card); border-top: 1.5px solid var(--border);
-    padding: 12px 16px;
-    padding-bottom: calc(12px + var(--safe-bottom));
-    display: flex; align-items: center; gap: 12px;
-    box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
-  }
-  .save-status {
-    font-size: 0.75rem; color: var(--muted); flex: 1;
-  }
-  .save-status.dirty { color: var(--accent-pm); font-weight: 700; }
-  .save-status.saved { color: var(--green); font-weight: 700; }
-  .save-status.syncing { color: var(--accent-am); font-weight: 700; }
-
-  .btn-save {
-    padding: 12px 28px;
-    background: var(--green); color: #fff;
-    border: none; border-radius: 10px;
-    font-weight: 800; font-size: 0.95rem;
-    cursor: pointer;
-    box-shadow: 0 3px 10px rgba(22,163,74,0.3);
-  }
-  .btn-save:active { opacity: 0.85; transform: scale(0.97); }
-  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* ── 토스트 ── */
   #toast {
@@ -329,7 +318,9 @@
   <div class="top-bar-row">
     <div class="app-title">출퇴근 <span>기록표</span></div>
     <div class="sync-indicator online" id="syncBadge">CLOUD</div>
+    <button class="top-bar-save" id="saveBtn" onclick="saveData()">저장</button>
   </div>
+  <div class="save-status-top" id="saveStatus">클라우드 동기화 완료</div>
   <div class="month-nav">
     <button class="month-btn" onclick="changeMonth(-1)">&#8249;</button>
     <span id="monthLabel"></span>
@@ -356,11 +347,6 @@
 <!-- 날짜 리스트 -->
 <div class="day-list" id="dayList"></div>
 
-<!-- 하단 저장 -->
-<div class="bottom-bar">
-  <div class="save-status" id="saveStatus">불러오는 중...</div>
-  <button class="btn-save" id="saveBtn" onclick="saveData()" disabled>저장</button>
-</div>
 
 <!-- Firebase SDK (CDN compat 버전) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -597,6 +583,11 @@
       inp.className = 'time-inp';
       inp.value = rec[fk] || '';
       inp.id = dk + '-' + fk;
+      inp.addEventListener('focus', function() {
+        if (!inp.value) {
+          inp.value = isAM ? '09:00' : '13:00';
+        }
+      });
       inp.addEventListener('change', function() {
         ensure(dk);
         data[dk][fk] = inp.value;
@@ -782,7 +773,7 @@
   function setStatus(msg, cls) {
     const el = document.getElementById('saveStatus');
     el.textContent = msg;
-    el.className = 'save-status ' + cls;
+    el.className = 'save-status-top ' + cls;
   }
 
   function ensure(k) { if (!data[k]) data[k] = {}; }
